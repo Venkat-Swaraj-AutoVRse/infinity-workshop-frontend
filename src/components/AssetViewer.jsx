@@ -3,6 +3,107 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../api';
 import ThreeDViewer from './ThreeDViewer';
 
+const crcTable = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+const crc32 = (bytes) => {
+  let crc = -1;
+  for (const byte of bytes) crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff];
+  return (crc ^ -1) >>> 0;
+};
+
+const sanitizeZipName = (name, fallback) => {
+  const clean = String(name || fallback)
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part && part !== '.' && part !== '..')
+    .join('/');
+  return clean || fallback;
+};
+
+const uniqueZipName = (name, used) => {
+  if (!used.has(name)) {
+    used.add(name);
+    return name;
+  }
+
+  const slash = name.lastIndexOf('/');
+  const dot = name.lastIndexOf('.');
+  const hasExt = dot > slash;
+  const base = hasExt ? name.slice(0, dot) : name;
+  const ext = hasExt ? name.slice(dot) : '';
+  let index = 2;
+  let next = `${base} (${index})${ext}`;
+
+  while (used.has(next)) {
+    index++;
+    next = `${base} (${index})${ext}`;
+  }
+
+  used.add(next);
+  return next;
+};
+
+const createZipBlob = (files) => {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const bytes = new Uint8Array(file.buffer);
+    if (bytes.length > 0xffffffff) throw new Error('File too large for zip download');
+
+    const crc = crc32(bytes);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(local.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, bytes.length, true);
+    localView.setUint32(22, bytes.length, true);
+    localView.setUint16(26, nameBytes.length, true);
+    local.set(nameBytes, 30);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, bytes.length, true);
+    centralView.setUint32(24, bytes.length, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+
+    localParts.push(local, bytes);
+    centralParts.push(central);
+    offset += local.length + bytes.length;
+  }
+
+  if (files.length > 0xffff || offset > 0xffffffff) throw new Error('Zip too large to download');
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, offset, true);
+
+  return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
+};
+
 const AssetViewer = ({ isOverlay = false }) => {
   const { assetId } = useParams();
   const navigate = useNavigate();
@@ -116,39 +217,51 @@ const AssetViewer = ({ isOverlay = false }) => {
         return;
       }
       
-      let downloadedCount = 0;
-      for (const file of files) {
+      const usedNames = new Set();
+      const downloadedFiles = [];
+      for (const [index, file] of files.entries()) {
         try {
           const res = await fetch(file.url);
           if (!res.ok) {
             console.warn(`Failed to download ${file.fileName}: ${res.status}`);
             continue;
           }
-          const blob = await res.blob();
-          const objectUrl = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = objectUrl;
-          link.download = file.fileName;
-          document.body.appendChild(link);
-          link.click();
-          window.URL.revokeObjectURL(objectUrl);
-          document.body.removeChild(link);
-          
-          downloadedCount++;
-          setDownloadProgress(Math.round((downloadedCount / files.length) * 100));
+
+          const name = uniqueZipName(
+            sanitizeZipName(file.s3RelativePath || file.relativePath || file.fileName, `file-${index + 1}`),
+            usedNames
+          );
+          downloadedFiles.push({ name, buffer: await res.arrayBuffer() });
+          setDownloadProgress(Math.round((downloadedFiles.length / files.length) * 100));
         } catch (err) {
           console.warn(`Error downloading ${file.fileName}:`, err);
+          if (err instanceof TypeError) {
+            throw new Error('Cannot create zip because S3 blocks browser access to the file contents. The API needs to return a zip file, or the S3 bucket needs CORS enabled for this app.');
+          }
         }
       }
       
-      if (downloadedCount > 0) {
-        alert(`Successfully downloaded ${downloadedCount}/${files.length} files`);
+      if (downloadedFiles.length > 0) {
+        const zipBlob = createZipBlob(downloadedFiles);
+        const objectUrl = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        const rawName = asset?.name || asset?.title || asset?.assetId || assetId;
+        link.href = objectUrl;
+        link.download = `${rawName}-v${selectedVersion}.zip`.replace(/[\\/:*?"<>|]+/g, '-');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(objectUrl);
+
+        if (downloadedFiles.length < files.length) {
+          alert(`Downloaded ${downloadedFiles.length}/${files.length} files as a zip`);
+        }
       } else {
         alert('Failed to download files');
       }
     } catch (err) {
       console.error('Download error:', err);
-      alert('Failed to get download URLs: ' + (err.response?.data?.message || err.message));
+      alert('Failed to download zip: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsDownloading(false);
       setDownloadProgress(0);
