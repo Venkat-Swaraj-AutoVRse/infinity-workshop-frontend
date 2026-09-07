@@ -27,4 +27,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.message || '';
+    const isAuthError = error.response?.status === 401 || message === 'Failed to authenticate token';
+
+    if (isAuthError && window.location.hash !== '#/login') {
+      localStorage.removeItem('iw_token');
+      localStorage.removeItem('iw_user');
+      localStorage.removeItem('iw_tenantId');
+      sessionStorage.removeItem('iw_assetGridCache');
+      sessionStorage.setItem('iw_authMessage', 'Your session has expired. Please sign in again.');
+      window.location.hash = '#/login';
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export default api;

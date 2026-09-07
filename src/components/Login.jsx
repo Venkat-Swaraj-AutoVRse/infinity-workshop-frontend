@@ -7,7 +7,11 @@ import TenantSelector from './TenantSelector';
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(() => {
+    const message = sessionStorage.getItem('iw_authMessage');
+    sessionStorage.removeItem('iw_authMessage');
+    return message;
+  });
   const [token, setToken] = useState(localStorage.getItem('iw_token') || null);
   const [loading, setLoading] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState(
