@@ -1,9 +1,16 @@
 name: Deploy to GitHub Pages
 
+# NOTE: GitHub Pages is kept as a FROZEN/LEGACY snapshot.
+# The live site is now hosted on AWS Amplify at
+# https://infinityworkshop.autovrse.app/
+# Auto-deploy on push has been disabled on purpose. This workflow can only be
+# run manually (Actions tab -> "Deploy to GitHub Pages" -> "Run workflow").
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+  # Auto-deploy on push to main is intentionally disabled (Pages is locked).
+  # push:
+  #   branches:
+  #     - main
 
 permissions:
   contents: write

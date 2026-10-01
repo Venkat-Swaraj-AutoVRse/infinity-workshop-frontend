@@ -29,7 +29,7 @@ const App = () => {
     localStorage.removeItem('iw_token');
     localStorage.removeItem('iw_tenantId');
     sessionStorage.removeItem('iw_assetGridCache');
-    window.location.hash = '#/login';
+    window.location.href = '/login';
     window.location.reload();
   };
 

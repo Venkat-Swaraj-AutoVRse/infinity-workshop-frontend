@@ -126,7 +126,7 @@ const Sidebar = ({ theme, toggleTheme, handleLogout }) => {
     localStorage.setItem('iw_tenantId', val);
     setTenantId(val);
     sessionStorage.removeItem('iw_assetGridCache');
-    window.location.hash = '#/assets';
+    window.location.href = '/assets';
     window.location.reload();
   };
 
