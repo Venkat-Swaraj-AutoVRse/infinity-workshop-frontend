@@ -4,8 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Infinity Workshop - DAM</title>
-    <script type="module" crossorigin src="/infinity-workshop-frontend/assets/index-a834a89c.js"></script>
-    <link rel="stylesheet" href="/infinity-workshop-frontend/assets/index-cd80e212.css">
+    <script>
+      // Legacy redirect: this GitHub Pages site is frozen. The live app now
+      // runs on AWS Amplify. Visitors on the old github.io host are
+      // redirected to the new domain, preserving their route.
+      // Runs on the legacy host ONLY, so it is inert on the Amplify domain.
+      (function () {
+        var NEW_ORIGIN = 'https://infinityworkshop.autovrse.app';
+        if (!window.location.hostname.endsWith('github.io')) return;
+
+        // Old site uses hash routing under a subpath, e.g.
+        //   /infinity-workshop-frontend/#/assets/123?x=1
+        // The hash holds the real route. Strip the leading '#', keep the rest.
+        var hash = window.location.hash || '';
+        var route = hash.replace(/^#/, ''); // -> "/assets/123?x=1" or ""
+        if (route && route.charAt(0) !== '/') {
+          route = '/' + route;
+        }
+        var target = NEW_ORIGIN + (route || '/');
+        // replace() so the old URL isn't kept in history.
+        window.location.replace(target);
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-4c7207b3.js"></script>
+    <link rel="stylesheet" href="/assets/index-cd80e212.css">
   </head>
   <body>
     <div id="root"></div>
