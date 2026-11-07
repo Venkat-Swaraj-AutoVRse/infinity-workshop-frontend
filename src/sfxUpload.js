@@ -133,7 +133,9 @@ export const fetchAudioCollections = async (tenantId) => {
     const response = await api.get('/assets', {
       params: { tenantId, assetType: 'audio', page, limit: 100 },
     });
-    const { assets = [], pagination } = response.data.data || {};
+    // Same shape AssetList reads: { data: [assets], pagination }.
+    const assets = response.data.data || [];
+    const { pagination } = response.data;
     for (const asset of assets) {
       const details = asset.currentVersionId?.unityAssetDetails;
       if (details?.isPartOfCollection && details.collectionKey) keys.add(details.collectionKey);
