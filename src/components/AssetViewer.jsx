@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../api';
 import ThreeDViewer from './ThreeDViewer';
+import AudioPreview, { formatTime } from './AudioPreview';
 import { assetTypeIcon, assetTypeLabel, findPlayableAudio, findViewableImage } from '../assetTypes';
 
 const MEDIA_TYPES = new Set(['audio', 'texture']);
@@ -123,7 +124,8 @@ const AssetViewer = ({ isOverlay = false }) => {
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
-  const [media, setMedia] = useState({ audioUrl: null, imageUrl: null });
+  const [media, setMedia] = useState({ loaded: false, audioFile: null, imageUrl: null });
+  const [audioInfo, setAudioInfo] = useState(null);
 
   const userStr = localStorage.getItem('iw_user');
   const user = userStr ? JSON.parse(userStr) : null;
@@ -197,7 +199,8 @@ const AssetViewer = ({ isOverlay = false }) => {
   // Audio and textures: fetch the selected version's signed URLs so the clip can be played and the
   // texture shown at full resolution (the backend serves known media with an inline content type).
   useEffect(() => {
-    setMedia({ audioUrl: null, imageUrl: null });
+    setMedia({ loaded: false, audioFile: null, imageUrl: null });
+    setAudioInfo(null);
     if (!asset || !MEDIA_TYPES.has(asset.assetType) || !selectedVersion) return;
 
     let cancelled = false;
@@ -212,11 +215,13 @@ const AssetViewer = ({ isOverlay = false }) => {
         const files = (response.data.data?.files || []).filter((f) => f.source !== 'dependency');
         if (cancelled) return;
         setMedia({
-          audioUrl: asset.assetType === 'audio' ? findPlayableAudio(files)?.url || null : null,
+          loaded: true,
+          audioFile: asset.assetType === 'audio' ? findPlayableAudio(files) || null : null,
           imageUrl: asset.assetType === 'texture' ? findViewableImage(files)?.url || null : null,
         });
       } catch (err) {
         console.error('Error fetching media preview:', err);
+        if (!cancelled) setMedia({ loaded: true, audioFile: null, imageUrl: null });
       }
     };
     fetchMedia();
@@ -374,7 +379,29 @@ const AssetViewer = ({ isOverlay = false }) => {
           )}
           
           <div className="preview-content">
-            {activeTab === 'preview' ? (
+            {activeTab === 'preview' && asset.assetType === 'audio' ? (
+              <div className="preview-audio-panel">
+                {media.audioFile ? (
+                  <>
+                    <AudioPreview source={media.audioFile.url} onInfo={setAudioInfo} />
+                    <div className="preview-audio-facts">
+                      <span>{media.audioFile.fileName.split('.').pop().toUpperCase()}</span>
+                      {audioInfo && <span>{formatTime(audioInfo.duration)}</span>}
+                      {audioInfo && <span>{(audioInfo.sampleRate / 1000).toFixed(1)} kHz</span>}
+                      {audioInfo && <span>{audioInfo.channels === 1 ? 'Mono' : audioInfo.channels === 2 ? 'Stereo' : `${audioInfo.channels} ch`}</span>}
+                      {media.audioFile.size > 0 && <span>{media.audioFile.size >= 1048576 ? `${(media.audioFile.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(media.audioFile.size / 1024))} KB`}</span>}
+                    </div>
+                  </>
+                ) : media.loaded ? (
+                  <div className="preview-audio-empty">
+                    {previewImgUrl && <img src={previewImgUrl} alt="waveform" />}
+                    <p>This format can't be played in the browser. Download it to listen.</p>
+                  </div>
+                ) : (
+                  <div className="audio-preview-skeleton large" />
+                )}
+              </div>
+            ) : activeTab === 'preview' ? (
               <div className="preview-image">
                 {previewImgUrl ? (
                   <img src={previewImgUrl} alt="preview" />
@@ -383,15 +410,6 @@ const AssetViewer = ({ isOverlay = false }) => {
                     <div className="preview-icon">{assetTypeIcon(asset.assetType)}</div>
                     <p>No preview available</p>
                   </div>
-                )}
-                {media.audioUrl && (
-                  <audio
-                    key={media.audioUrl}
-                    className="preview-audio"
-                    controls
-                    preload="metadata"
-                    src={media.audioUrl}
-                  />
                 )}
               </div>
             ) : (

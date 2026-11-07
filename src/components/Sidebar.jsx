@@ -195,6 +195,17 @@ const Sidebar = ({ theme, toggleTheme, handleLogout }) => {
               </li>
               <li>
                 <Link
+                  to="/upload/sfx"
+                  className={`nav-item ${location.pathname === '/upload/sfx' ? 'active' : ''}`}
+                  title={collapsed ? 'Upload SFX' : ''}
+                  onClick={handleMobileClose}
+                >
+                  <span className="nav-icon">⬆️</span>
+                  {!collapsed && 'Upload SFX'}
+                </Link>
+              </li>
+              <li>
+                <Link
                   to="/labels"
                   className={`nav-item ${location.pathname === '/labels' ? 'active' : ''}`}
                   title={collapsed ? 'Labels & Tags' : ''}
