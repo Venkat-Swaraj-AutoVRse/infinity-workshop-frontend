@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Link, Routes, Route } from 'react-router-dom'
 import api from '../api';
 import AssetCard from './AssetCard';
 import AssetViewer from './AssetViewer';
+import { ASSET_TYPES } from '../assetTypes';
 
 const CATEGORY_MAP = {
   Projects: 'PROJECTS',
@@ -68,7 +69,6 @@ const AssetList = () => {
   const [openDropdownCategory, setOpenDropdownCategory] = useState(null);
   const [selectedLabels, setSelectedLabels] = useState(cachedData?.selectedLabels || []);
   const [selectedType, setSelectedType] = useState(cachedData?.selectedType || '');
-  const [availableTypes, setAvailableTypes] = useState([]);
   
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('iw_assetSort') || 'created');
   const [gridSize, setGridSize] = useState(() => {
@@ -300,15 +300,6 @@ const AssetList = () => {
     );
   };
 
-  // Derive unique asset types for filters
-  useEffect(() => {
-    const typesSet = new Set();
-    assets.forEach((a) => {
-      if (a.assetType) typesSet.add(a.assetType);
-    });
-    setAvailableTypes(Array.from(typesSet).sort());
-  }, [assets]);
-
   const getCategoryLabels = (category) => {
     if (!category) return [];
     
@@ -441,23 +432,21 @@ const AssetList = () => {
             </select>
           </div>
           
-          {availableTypes.length > 0 && (
-            <div className="type-filter">
-              <label>Type:</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="type-select"
-              >
-                <option value="">All Types</option>
-                {availableTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div className="type-filter">
+            <label>Type:</label>
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="type-select"
+            >
+              <option value="">All Types</option>
+              {ASSET_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
           
           <div className="grid-size-control">
             <label>Grid Size:</label>

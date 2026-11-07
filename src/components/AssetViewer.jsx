@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../api';
 import ThreeDViewer from './ThreeDViewer';
+import { assetTypeIcon, assetTypeLabel, findPlayableAudio, findViewableImage } from '../assetTypes';
+
+const MEDIA_TYPES = new Set(['audio', 'texture']);
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -120,6 +123,7 @@ const AssetViewer = ({ isOverlay = false }) => {
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [media, setMedia] = useState({ audioUrl: null, imageUrl: null });
 
   const userStr = localStorage.getItem('iw_user');
   const user = userStr ? JSON.parse(userStr) : null;
@@ -189,6 +193,35 @@ const AssetViewer = ({ isOverlay = false }) => {
     };
     fetchVersions();
   }, [assetId, asset]);
+
+  // Audio and textures: fetch the selected version's signed URLs so the clip can be played and the
+  // texture shown at full resolution (the backend serves known media with an inline content type).
+  useEffect(() => {
+    setMedia({ audioUrl: null, imageUrl: null });
+    if (!asset || !MEDIA_TYPES.has(asset.assetType) || !selectedVersion) return;
+
+    let cancelled = false;
+    const fetchMedia = async () => {
+      try {
+        const tenantId = localStorage.getItem('iw_tenantId');
+        const response = await api.post(
+          `/assets/${assetId}/versions/${selectedVersion}/download`,
+          { tenantId },
+          { params: { tenantId } }
+        );
+        const files = (response.data.data?.files || []).filter((f) => f.source !== 'dependency');
+        if (cancelled) return;
+        setMedia({
+          audioUrl: asset.assetType === 'audio' ? findPlayableAudio(files)?.url || null : null,
+          imageUrl: asset.assetType === 'texture' ? findViewableImage(files)?.url || null : null,
+        });
+      } catch (err) {
+        console.error('Error fetching media preview:', err);
+      }
+    };
+    fetchMedia();
+    return () => { cancelled = true; };
+  }, [assetId, asset, selectedVersion]);
 
   const handleDownload = async () => {
     if (!selectedVersion) {
@@ -298,7 +331,7 @@ const AssetViewer = ({ isOverlay = false }) => {
   const isFbxFile = (fileName) => fileName?.toLowerCase().endsWith('.fbx') || false;
   const hasFbx = asset?.files?.some(file => isFbxFile(file.fileName)) || false;
   
-  const previewImgUrl = asset?.previewUrl || asset?.primaryFileUrl || asset?.thumbnailUrl || '';
+  const previewImgUrl = media.imageUrl || asset?.previewUrl || asset?.primaryFileUrl || asset?.thumbnailUrl || '';
 
   const renderStatus = () => {
     if (loading) return <div className="viewer-loading">Loading asset...</div>;
@@ -347,9 +380,18 @@ const AssetViewer = ({ isOverlay = false }) => {
                   <img src={previewImgUrl} alt="preview" />
                 ) : (
                   <div className="preview-placeholder">
-                    <div className="preview-icon">📦</div>
+                    <div className="preview-icon">{assetTypeIcon(asset.assetType)}</div>
                     <p>No preview available</p>
                   </div>
+                )}
+                {media.audioUrl && (
+                  <audio
+                    key={media.audioUrl}
+                    className="preview-audio"
+                    controls
+                    preload="metadata"
+                    src={media.audioUrl}
+                  />
                 )}
               </div>
             ) : (
@@ -429,7 +471,7 @@ const AssetViewer = ({ isOverlay = false }) => {
               <div className="info-grid">
                 <div className="info-item">
                   <span className="info-label">Type</span>
-                  <span className="info-value">{asset.assetType || 'Unknown'}</span>
+                  <span className="info-value">{asset.assetType ? assetTypeLabel(asset.assetType) : 'Unknown'}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">Created</span>
