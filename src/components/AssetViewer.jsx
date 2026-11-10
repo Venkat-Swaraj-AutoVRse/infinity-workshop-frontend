@@ -130,6 +130,10 @@ const AssetViewer = ({ isOverlay = false }) => {
   const userStr = localStorage.getItem('iw_user');
   const user = userStr ? JSON.parse(userStr) : null;
   const isRegularUser = user?.role === 'user';
+  // Who uploaded the selected version; versions from before the backend recorded it have none.
+  const uploadedBy =
+    versions.find((v) => (v.versionNumber ?? v.version) === selectedVersion)?.uploadedBy ||
+    (selectedVersion == null ? asset?.currentVersionId?.uploadedBy : null);
 
   const handleClose = useCallback((e) => {
     if (e) e.preventDefault();
@@ -452,7 +456,7 @@ const AssetViewer = ({ isOverlay = false }) => {
                       return (
                         <option key={verNum} value={verNum} disabled={isArchived}>
                           {isArchived ? '[Archived] ' : ''}
-                          Version {verNum} ({dateStr})
+                          Version {verNum} ({dateStr}{ver.uploadedBy ? ` · ${ver.uploadedBy}` : ''})
                         </option>
                       );
                     })}
@@ -506,6 +510,10 @@ const AssetViewer = ({ isOverlay = false }) => {
                 <div className="info-item">
                   <span className="info-label">Version</span>
                   <span className="info-value">{asset.latestVersionNumber || '1'}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Uploaded by</span>
+                  <span className="info-value">{uploadedBy || 'Not recorded'}</span>
                 </div>
               </div>
             </div>
