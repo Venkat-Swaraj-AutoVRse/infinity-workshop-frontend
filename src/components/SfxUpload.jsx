@@ -66,91 +66,150 @@ const CollectionInput = ({ value, onChange, options, disabled }) => {
   );
 };
 
-/** Selected labels as tokens; typing filters the tenant's labels, grouped by category. */
-const TagInput = ({ value, onChange, groups, disabled }) => {
-  const ref = useRef(null);
-  const inputRef = useRef(null);
+// Labels used in earlier SFX uploads on this browser, newest first: the quickest way back to common tags.
+const RECENT_KEY = 'iw_recentSfxTags';
+const readRecent = () => {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; }
+};
+const rememberRecentTags = (tags) => {
+  try {
+    const next = [...tags, ...readRecent().filter((t) => !tags.includes(t))].slice(0, 16);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch { /* storage unavailable: recents are a convenience */ }
+};
+
+/**
+ * Inline label picker: search across every label, or browse one category at a time. Labels are chips
+ * that toggle on and off, so the list never has to be scrolled to find what's selected.
+ */
+const TagPicker = ({ value, onChange, groups, disabled }) => {
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  useOutsideClick(ref, () => setOpen(false));
+  const [recent] = useState(readRecent);
+  const allGroups = useMemo(() => {
+    const known = new Set(groups.flatMap((g) => g.labels));
+    const recentLabels = recent.filter((l) => known.has(l));
+    return recentLabels.length ? [{ name: 'Recent', section: 'top', labels: recentLabels }, ...groups] : groups;
+  }, [groups, recent]);
+  const [category, setCategory] = useState(null);
+  const current = allGroups.find((g) => g.name === category) || allGroups[0];
+  const total = groups.reduce((n, g) => n + g.labels.length, 0);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  const q = query.trim().toLowerCase();
+  const matches = useMemo(() => {
+    if (!q) return [];
     return groups
-      .map((g) => ({ ...g, labels: g.labels.filter((l) => !value.includes(l) && (!q || l.toLowerCase().includes(q))) }))
+      .map((g) => ({ ...g, labels: g.labels.filter((l) => l.toLowerCase().includes(q)) }))
       .filter((g) => g.labels.length > 0);
-  }, [groups, query, value]);
-  const flat = filtered.flatMap((g) => g.labels);
+  }, [groups, q]);
 
-  useEffect(() => setActive(0), [query, open]);
+  const selected = new Set(value);
+  // Functional update (onChange is a state setter) so quick successive clicks don't drop a label.
+  const toggle = (label) =>
+    onChange((prev) => (prev.includes(label) ? prev.filter((t) => t !== label) : [...prev, label]));
+  const selectedIn = (g) => g.labels.reduce((n, l) => n + (selected.has(l) ? 1 : 0), 0);
 
-  const add = (label) => {
-    onChange([...value, label]);
-    setQuery('');
-    inputRef.current?.focus();
+  const chips = (labels) => (
+    <div className="tagp-chips">
+      {labels.map((l) => (
+        <button
+          type="button"
+          key={l}
+          className={`tagp-chip ${selected.has(l) ? 'on' : ''}`}
+          aria-pressed={selected.has(l)}
+          onClick={() => toggle(l)}
+          disabled={disabled}
+        >
+          {selected.has(l) && <span aria-hidden="true">✓</span>}
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+
+  const navItem = (g) => {
+    const n = selectedIn(g);
+    return (
+      <button
+        type="button"
+        key={g.name}
+        className={`tagp-cat ${g === current ? 'active' : ''}`}
+        onClick={() => setCategory(g.name)}
+      >
+        <span className="tagp-cat-name">{g.name}</span>
+        {n > 0 ? <span className="tagp-cat-sel">{n}</span> : <span className="tagp-cat-count">{g.labels.length}</span>}
+      </button>
+    );
   };
 
-  const onKeyDown = (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(flat.length - 1, a + 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
-    else if (e.key === 'Enter' && open && flat[active]) { e.preventDefault(); add(flat[active]); }
-    else if (e.key === 'Backspace' && !query && value.length) onChange(value.slice(0, -1));
-    else if (e.key === 'Escape') setOpen(false);
-  };
+  if (groups.length === 0) {
+    return <div className="tagp tagp-empty">No labels yet. Add them under Labels &amp; Tags.</div>;
+  }
 
-  let index = -1;
+  const top = allGroups.filter((g) => g.section !== 'clients');
+  const clients = allGroups.filter((g) => g.section === 'clients');
+
   return (
-    <div className="sfx-combo" ref={ref}>
-      <div className="sfx-field-box sfx-token-box" onClick={() => { inputRef.current?.focus(); setOpen(true); }}>
+    <div className={`tagp ${disabled ? 'is-disabled' : ''}`}>
+      <div className="tagp-selected">
+        {value.length === 0 && <span className="tagp-placeholder">No tags selected</span>}
         {value.map((t) => (
           <span key={t} className="sfx-token">
             {t}
-            {!disabled && (
-              <button type="button" onClick={(e) => { e.stopPropagation(); onChange(value.filter((x) => x !== t)); }} aria-label={`Remove ${t}`}>×</button>
-            )}
+            {!disabled && <button type="button" onClick={() => toggle(t)} aria-label={`Remove ${t}`}>×</button>}
           </span>
         ))}
-        <input
-          ref={inputRef}
-          className="sfx-bare-input"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          placeholder={value.length ? '' : 'Add labels'}
-          disabled={disabled}
-        />
+        {value.length > 1 && !disabled && (
+          <button type="button" className="tagp-clear" onClick={() => onChange([])}>Clear all</button>
+        )}
       </div>
-      {open && !disabled && (
-        <div className="sfx-menu sfx-menu-grouped">
-          {filtered.length === 0 && (
-            <div className="sfx-menu-empty">
-              {groups.length === 0 ? 'No labels yet. Add them under Labels & Tags.' : 'No matching labels'}
-            </div>
-          )}
-          {filtered.map((g) => (
-            <div key={g.name} className="sfx-menu-group">
-              <div className="sfx-menu-group-name">{g.name}</div>
-              {g.labels.map((l) => {
-                index += 1;
-                const i = index;
-                return (
-                  <button
-                    type="button"
-                    key={l}
-                    className={i === active ? 'active' : ''}
-                    onMouseEnter={() => setActive(i)}
-                    onClick={() => add(l)}
-                  >
-                    {l}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+
+      <div className="tagp-panel">
+        <div className="tagp-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('');
+              // Enter adds the only match, or the exact match, without reaching for the mouse.
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const flat = matches.flatMap((g) => g.labels);
+                const pick = flat.find((l) => l.toLowerCase() === q) || (flat.length === 1 ? flat[0] : null);
+                if (pick && !selected.has(pick)) { toggle(pick); setQuery(''); }
+              }
+            }}
+            placeholder={`Search ${total} labels`}
+            disabled={disabled}
+            aria-label="Search labels"
+          />
+          {query && <button type="button" className="sfx-clear" onClick={() => setQuery('')} aria-label="Clear search">×</button>}
         </div>
-      )}
+
+        {q ? (
+          <div className="tagp-results">
+            {matches.length === 0 && <div className="tagp-none">No labels match “{query.trim()}”</div>}
+            {matches.map((g) => (
+              <div key={g.name} className="tagp-result-group">
+                <div className="tagp-group-name">{g.name}</div>
+                {chips(g.labels)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="tagp-browse">
+            <nav className="tagp-nav" aria-label="Label categories">
+              {top.map(navItem)}
+              {clients.length > 0 && <div className="tagp-nav-heading">Clients</div>}
+              {clients.map(navItem)}
+            </nav>
+            <div className="tagp-pane">
+              <div className="tagp-group-name">{current.name}</div>
+              {chips(current.labels)}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -175,13 +234,30 @@ const SfxUpload = () => {
     if (!tenantId) return;
     fetchLabels(tenantId).then((result) => {
       if (!result.success) return;
+      // Standard categories first in a fixed order; any other category is a client's own module labels.
+      const order = Object.keys(CATEGORY_NAMES);
       const groups = Object.entries(result.labels)
         .map(([key, configs]) => ({
-          name: CATEGORY_NAMES[key] || `Modules · ${key}`,
-          labels: Array.from(new Set(configs.flatMap((c) => c.labels || []).filter(Boolean))).sort(),
+          key,
+          name: CATEGORY_NAMES[key] || key,
+          section: key in CATEGORY_NAMES ? 'standard' : 'clients',
+          labels: Array.from(new Set(configs.flatMap((c) => c.labels || []).filter(Boolean)))
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
         }))
         .filter((g) => g.labels.length > 0)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        // CUSTOM and Custom (the fallback for configs without a category) are one group.
+        .reduce((acc, g) => {
+          const same = acc.find((x) => x.name === g.name);
+          if (same) same.labels = Array.from(new Set([...same.labels, ...g.labels])).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+          else acc.push(g);
+          return acc;
+        }, [])
+        .sort((a, b) =>
+          a.section !== b.section
+            ? (a.section === 'standard' ? -1 : 1)
+            : a.section === 'standard'
+              ? order.indexOf(a.key) - order.indexOf(b.key)
+              : a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
       setLabelGroups(groups);
     });
     fetchAudioCollections(tenantId)
@@ -246,6 +322,7 @@ const SfxUpload = () => {
       }
     }
     sessionStorage.removeItem('iw_assetGridCache'); // so the asset grid shows the new clips
+    if (tags.length) rememberRecentTags(tags);
     if (collectionKey && !collections.includes(collectionKey)) {
       setCollections((prev) => [...prev, collectionKey].sort((a, b) => a.localeCompare(b)));
     }
@@ -355,7 +432,7 @@ const SfxUpload = () => {
                 </div>
                 <div className="sfx-field">
                   <span className="sfx-label">Tags</span>
-                  <TagInput value={tags} onChange={setTags} groups={labelGroups} disabled={uploading} />
+                  <TagPicker value={tags} onChange={setTags} groups={labelGroups} disabled={uploading} />
                 </div>
                 <label className="sfx-field">
                   <span className="sfx-label">Notes <em>optional</em></span>
