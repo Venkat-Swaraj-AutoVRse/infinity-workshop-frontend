@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../api';
 import ThreeDViewer from './ThreeDViewer';
+import AudioPreview, { formatTime } from './AudioPreview';
+import { assetTypeIcon, assetTypeLabel, findPlayableAudio, findViewableImage } from '../assetTypes';
+
+const MEDIA_TYPES = new Set(['audio', 'texture']);
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -120,6 +124,8 @@ const AssetViewer = ({ isOverlay = false }) => {
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [media, setMedia] = useState({ loaded: false, audioFile: null, imageUrl: null });
+  const [audioInfo, setAudioInfo] = useState(null);
 
   const userStr = localStorage.getItem('iw_user');
   const user = userStr ? JSON.parse(userStr) : null;
@@ -189,6 +195,38 @@ const AssetViewer = ({ isOverlay = false }) => {
     };
     fetchVersions();
   }, [assetId, asset]);
+
+  // Audio and textures: fetch the selected version's signed URLs so the clip can be played and the
+  // texture shown at full resolution (the backend serves known media with an inline content type).
+  useEffect(() => {
+    setMedia({ loaded: false, audioFile: null, imageUrl: null });
+    setAudioInfo(null);
+    if (!asset || !MEDIA_TYPES.has(asset.assetType) || !selectedVersion) return;
+
+    let cancelled = false;
+    const fetchMedia = async () => {
+      try {
+        const tenantId = localStorage.getItem('iw_tenantId');
+        const response = await api.post(
+          `/assets/${assetId}/versions/${selectedVersion}/download`,
+          { tenantId },
+          { params: { tenantId } }
+        );
+        const files = (response.data.data?.files || []).filter((f) => f.source !== 'dependency');
+        if (cancelled) return;
+        setMedia({
+          loaded: true,
+          audioFile: asset.assetType === 'audio' ? findPlayableAudio(files) || null : null,
+          imageUrl: asset.assetType === 'texture' ? findViewableImage(files)?.url || null : null,
+        });
+      } catch (err) {
+        console.error('Error fetching media preview:', err);
+        if (!cancelled) setMedia({ loaded: true, audioFile: null, imageUrl: null });
+      }
+    };
+    fetchMedia();
+    return () => { cancelled = true; };
+  }, [assetId, asset, selectedVersion]);
 
   const handleDownload = async () => {
     if (!selectedVersion) {
@@ -298,7 +336,7 @@ const AssetViewer = ({ isOverlay = false }) => {
   const isFbxFile = (fileName) => fileName?.toLowerCase().endsWith('.fbx') || false;
   const hasFbx = asset?.files?.some(file => isFbxFile(file.fileName)) || false;
   
-  const previewImgUrl = asset?.previewUrl || asset?.primaryFileUrl || asset?.thumbnailUrl || '';
+  const previewImgUrl = media.imageUrl || asset?.previewUrl || asset?.primaryFileUrl || asset?.thumbnailUrl || '';
 
   const renderStatus = () => {
     if (loading) return <div className="viewer-loading">Loading asset...</div>;
@@ -341,13 +379,35 @@ const AssetViewer = ({ isOverlay = false }) => {
           )}
           
           <div className="preview-content">
-            {activeTab === 'preview' ? (
+            {activeTab === 'preview' && asset.assetType === 'audio' ? (
+              <div className="preview-audio-panel">
+                {media.audioFile ? (
+                  <>
+                    <AudioPreview source={media.audioFile.url} onInfo={setAudioInfo} />
+                    <div className="preview-audio-facts">
+                      <span>{media.audioFile.fileName.split('.').pop().toUpperCase()}</span>
+                      {audioInfo && <span>{formatTime(audioInfo.duration)}</span>}
+                      {audioInfo && <span>{(audioInfo.sampleRate / 1000).toFixed(1)} kHz</span>}
+                      {audioInfo && <span>{audioInfo.channels === 1 ? 'Mono' : audioInfo.channels === 2 ? 'Stereo' : `${audioInfo.channels} ch`}</span>}
+                      {media.audioFile.size > 0 && <span>{media.audioFile.size >= 1048576 ? `${(media.audioFile.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(media.audioFile.size / 1024))} KB`}</span>}
+                    </div>
+                  </>
+                ) : media.loaded ? (
+                  <div className="preview-audio-empty">
+                    {previewImgUrl && <img src={previewImgUrl} alt="waveform" />}
+                    <p>This format can't be played in the browser. Download it to listen.</p>
+                  </div>
+                ) : (
+                  <div className="audio-preview-skeleton large" />
+                )}
+              </div>
+            ) : activeTab === 'preview' ? (
               <div className="preview-image">
                 {previewImgUrl ? (
                   <img src={previewImgUrl} alt="preview" />
                 ) : (
                   <div className="preview-placeholder">
-                    <div className="preview-icon">📦</div>
+                    <div className="preview-icon">{assetTypeIcon(asset.assetType)}</div>
                     <p>No preview available</p>
                   </div>
                 )}
@@ -429,7 +489,7 @@ const AssetViewer = ({ isOverlay = false }) => {
               <div className="info-grid">
                 <div className="info-item">
                   <span className="info-label">Type</span>
-                  <span className="info-value">{asset.assetType || 'Unknown'}</span>
+                  <span className="info-value">{asset.assetType ? assetTypeLabel(asset.assetType) : 'Unknown'}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">Created</span>

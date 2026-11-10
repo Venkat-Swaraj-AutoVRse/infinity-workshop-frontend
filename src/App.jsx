@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Login from './components/Login';
 import AssetList from './components/AssetList';
 import LabelsAndTags from './components/LabelsAndTags';
+import SfxUpload from './components/SfxUpload';
 import HealthCheck from './components/HealthCheck';
 import TenantManagement from './components/TenantManagement';
 import ConfigManagement from './components/ConfigManagement';
@@ -72,6 +73,15 @@ const App = () => {
               }
             />
             
+            <Route
+              path="/upload/sfx"
+              element={
+                <PrivateRoute>
+                  <SfxUpload />
+                </PrivateRoute>
+              }
+            />
+
             <Route
               path="/labels"
               element={
